@@ -21,6 +21,7 @@ const player_speed = {
   fast: 5,
   pro: 0,
 };
+
 const player_size = {
   large: 150,
   medium: 120,
@@ -51,7 +52,7 @@ class GameControl {
   gameOver() {
     textSize(40);
     fill(255, 0, 0);
-    text("GAME OVER!", width / 2 - 100, height / 2);
+    text("GAME OVER!", width / 2, height / 2);
     noLoop(); // Stop the game
   }
 }
@@ -59,10 +60,13 @@ class GameControl {
 // Player Class
 class Player {
   constructor(x, y) {
+    this.x = x;
     this.y = y;
     this.size = size;
     this.color = color(255, 0, 0);
     this.slotWidth = width / slots;
+    this.hearts = hearts;
+    this.score = score;
 
     // Initialize player in the center slot
     this.currentSlot = Math.floor(slots / 2);
@@ -96,13 +100,11 @@ class Player {
 
 // Fruit Class
 class Fruit {
-  constructor(slotIndex, slotWidth, isPoison = false) {
+  constructor(slotIndex, slotWidth) {
     this.x = slotIndex * slotWidth + slotWidth / 2;
     this.y = 0;
     this.size = 20;
-    this.isPoison = isPoison;
-    this.isPowerUp = false;
-    this.color = this.isPoison ? color(0, 0, 0) : this.randomColor(); // Black color for poison
+    this.color = this.randomColor();
   }
 
   randomColor() {
@@ -135,34 +137,44 @@ class Fruit {
     }
     return false; // No collision
   }
+
+  applyEffect(player) {
+    // Default effect: increase score
+    player.score++;
+  }
 }
 
-// PowerUp Class
-class PowerUp extends Fruit {
-  constructor(slotIndex, slotWidth, playerSize, fruitSpeed) {
-    super(slotIndex, slotWidth, false);
-    this.playerSize = playerSize;
-    this.fruitSpeed = fruitSpeed;
-    this.color = color(255, 215, 0); // Gold color for power-ups
+// Poison Class
+class Poison extends Fruit {
+  constructor(slotIndex, slotWidth) {
+    super(slotIndex, slotWidth);
+    this.color = color(0, 0, 0); // Black color for poison
   }
 
   applyEffect(player) {
-    // To be overridden by subclasses
+    player.hearts--; // Decrease hearts on poison collision
   }
 }
-
 // RainyFruits Class
-class RainyFruits extends PowerUp {
-  applyEffect(player) {
+class RainyFruits extends Fruit {
+  applyEffect() {
     // Increase the frequency of falling fruits
     difficulty = max(difficulty - 500, 500); // Increase speed, minimum 500ms
+
+    // Set the rainy fruits effect active
+    gameControl.isRainyFruitsActive = true;
+
+    // Deactivate the rainy fruits effect after 15 seconds
+    setTimeout(() => {
+      gameControl.isRainyFruitsActive = false;
+    }, 15000); // 15 seconds in milliseconds
   }
 }
 
 // BigBoards Class
-class BigBoards extends PowerUp {
-  constructor(slotIndex, slotWidth, playerSize, fruitSpeed) {
-    super(slotIndex, slotWidth, playerSize, fruitSpeed);
+class BigBoards extends Fruit {
+  constructor(slotIndex, slotWidth) {
+    super(slotIndex, slotWidth);
     this.size = 30; // Bigger size
   }
 
@@ -174,14 +186,21 @@ class BigBoards extends PowerUp {
   }
 
   applyEffect(player) {
-    // Increase player size
+    // Increase player size for 20 seconds
+    const originalSize = player.size;
     player.size = min(player.size + 20, 150); // Maximum size 150
     player.updatePosition();
+
+    // Revert player size back to original after 20 seconds
+    setTimeout(() => {
+      player.size = originalSize;
+      player.updatePosition();
+    }, 20000); // 20 seconds in milliseconds
   }
 }
 
 // ExtraHeart Class
-class ExtraHeart extends PowerUp {
+class ExtraHeart extends Fruit {
   display() {
     fill(this.color);
     noStroke();
@@ -208,10 +227,9 @@ class ExtraHeart extends PowerUp {
 
   applyEffect(player) {
     // Increase hearts
-    hearts = min(hearts + 1, 5); // Maximum 5 hearts
+    player.hearts = min(player.hearts + 1, 3); // Maximum 5 hearts
   }
 }
-
 // Splash particle class for 3D-ish splash effect
 class SplashParticle {
   constructor(x, y, color, maxSize) {
@@ -257,36 +275,55 @@ function setup() {
   setInterval(() => {
     if (!gameControl.isPaused) {
       let slotIndex = floor(random(slots));
-      let isPoison = random() < 0.2; // 20% chance of poison
-      fruits.push(new Fruit(slotIndex, slotWidth, isPoison));
+      fruits.push(new Fruit(slotIndex, slotWidth));
     }
   }, difficulty);
 
-  // Initialize power-ups
   setInterval(() => {
     if (!gameControl.isPaused) {
       let slotIndex = floor(random(slots));
-      if (random() < 0.05) {
-        // 5% chance of power-up
-        let powerUpType = random([RainyFruits, BigBoards, ExtraHeart]);
-        powerUps.push(
-          new powerUpType(slotIndex, slotWidth, player1.size, difficulty)
-        );
+      let powerUpType = random();
+
+      if (gameControl.isRainyFruitsActive) {
+        // Flood the screen with a mix of poison and fruits
+        if (powerUpType < 1) {
+          fruits.push(new Poison(slotIndex, slotWidth));
+        } else {
+          fruits.push(new Fruit(slotIndex, slotWidth));
+        }
+      } else {
+        // Normal power-up generation
+        if (powerUpType < 0.2) {
+          powerUps.push(new Poison(slotIndex, slotWidth));
+        } else if (powerUpType < 0.8) {
+          powerUps.push(new RainyFruits(slotIndex, slotWidth));
+        } else if (powerUpType < 0.2) {
+          powerUps.push(new BigBoards(slotIndex, slotWidth));
+        } else if (powerUpType < 0.1) {
+          powerUps.push(new ExtraHeart(slotIndex, slotWidth));
+        }
       }
     }
-  }, 10000); // Power-ups appear every 10 seconds
+  }, difficulty * 5); // Power-ups less frequent than fruits
+
+  // Create restart button
+  let restartButton = createButton("Restart");
+  restartButton.position(width / 2, height / 2);
+  restartButton.mousePressed(restartGame);
+  restartButton.hide(); // Hide button initially
 }
 
 function draw() {
   // Paused screen
+
   if (gameControl.isPaused) {
-    textSize(50);
+    textSize(20);
     textAlign(CENTER, CENTER);
     text("PAUSED", width / 2, height / 2);
     return;
   }
-
   background(220);
+
   // Player controls
   if (moveCooldown <= 0) {
     if (
@@ -312,11 +349,7 @@ function draw() {
     fruits[i].display();
 
     if (fruits[i].checkCollision(player1)) {
-      if (fruits[i].isPoison) {
-        hearts--; // Decrease hearts on poison collision
-      } else {
-        score++; // Increase score on fruit collision
-      }
+      fruits[i].applyEffect(player1); // Apply effect on collision
       fruits.splice(i, 1); // Remove fruit after collision
     } else if (fruits[i].y > height) {
       fruits.splice(i, 1); // Remove fruit if it falls out of bounds
@@ -329,6 +362,7 @@ function draw() {
     powerUps[i].display();
 
     if (powerUps[i].checkCollision(player1)) {
+      powerUps[i].applyEffect(player1); // Apply effect on collision
       powerUps.splice(i, 1); // Remove power-up after collision
     } else if (powerUps[i].y > height) {
       powerUps.splice(i, 1); // Remove power-up if it falls out of bounds
@@ -347,15 +381,21 @@ function draw() {
   // Show score and hearts
   fill(0);
   textSize(20);
-  text("Score: " + score, 20, 30);
-  text("Hearts: " + hearts, 20, 60);
+  textAlign(LEFT, TOP);
+  text("Score: " + player1.score, 20, 30);
+  text("Hearts: " + player1.hearts, 20, 60);
 
   // Check if game is over
-  if (hearts <= 0) {
+  if (player1.hearts <= 0) {
     gameControl.gameOver(); // Call gameOver from GameControl
+    select("button").show(); // Show restart button
   }
 }
 
 function keyPressed() {
   gameControl.keyPressed(); // Delegate key press handling to GameControl
+}
+
+function restartGame() {
+  location.reload(); // Reload the game
 }
