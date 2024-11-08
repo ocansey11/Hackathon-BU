@@ -1,4 +1,4 @@
-# Team Alpha's Fruit Catcher Game
+# Team Alpha's Fruit Catcher Game a.k.a 'Lip Catcher"
 
 Welcome to **Fruit Catcher** by Team Alpha! This thrilling arcade-style game lets players catch falling fruits, avoid dangerous poisons, and chase high scores in a world of quirky power-ups. With two distinct versions, there’s fun for everyone!
 
