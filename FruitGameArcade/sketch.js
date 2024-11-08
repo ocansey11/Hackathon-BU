@@ -36,11 +36,13 @@ let size = player_size.pro;
 
 let score = 0; // Start with 0 score
 let hearts = 3; // Start with 3 hearts
+const basePowerUpInterval = difficulty * 5;
 
 // Define the GameControl class
 class GameControl {
   constructor() {
     this.isPaused = false;
+    this.isRaining = false;
   }
 
   keyPressed() {
@@ -58,6 +60,7 @@ class GameControl {
 }
 
 // Player Class
+// Player Class
 class Player {
   constructor(x, y) {
     this.x = x;
@@ -71,9 +74,13 @@ class Player {
     // Initialize player in the center slot
     this.currentSlot = Math.floor(slots / 2);
     this.updatePosition();
+
+    // Vertical movement bounds
+    this.minY = height * 0.5; // Upper limit for vertical movement
+    this.maxY = height * 0.9; // Lower limit for vertical movement
   }
 
-  // Update position based on the current slot
+  // Update position based on the current slot (horizontal only)
   updatePosition() {
     this.x = this.currentSlot * this.slotWidth + this.slotWidth / 2;
   }
@@ -96,14 +103,34 @@ class Player {
       this.updatePosition();
     }
   }
+
+  // Move player up within the specified bounds
+  moveUp() {
+    if (this.y > this.minY) {
+      this.y -= 10; // Adjust the speed as desired
+    }
+  }
+
+  // Move player down within the specified bounds
+  moveDown() {
+    if (this.y < this.maxY) {
+      this.y += 10;
+    }
+  }
 }
 
 // Fruit Class
+// Fruit Class with depth property
 class Fruit {
   constructor(slotIndex, slotWidth) {
     this.x = slotIndex * slotWidth + slotWidth / 2;
     this.y = 0;
-    this.size = 20;
+
+    // Depth determines size, speed, and opacity
+    this.depth = random(0.5, 1.5); // Random depth, closer fruits are larger
+    this.size = 20 * this.depth; // Scale size based on depth
+    this.speed = 3 * this.depth; // Scale speed based on depth
+    this.opacity = map(this.depth, 0.5, 1.5, 150, 255); // More opaque if closer
     this.color = this.randomColor();
   }
 
@@ -111,31 +138,32 @@ class Fruit {
     let r = floor(random(256));
     let g = floor(random(256));
     let b = floor(random(256));
-    return color(r, g, b);
+    return color(r, g, b, this.opacity);
   }
 
   fall() {
-    this.y += 5;
+    this.y += gameControl.isRaining ? 10 : this.speed;
   }
 
   display() {
-    fill(this.color);
-    circle(this.x, this.y, this.size);
+    fill(red(this.color), green(this.color), blue(this.color), this.opacity);
+    noStroke();
+    ellipse(this.x, this.y, this.size, this.size); // Adjust size for 3D effect
   }
 
   checkCollision(player) {
-    let yTolerance = 15; // Tolerance for y-axis to allow slight margin for collision
-    let xTolerance = player.size / 2; // Based on player size
+    let yTolerance = 15;
+    let xTolerance = player.size / 2;
 
     if (
       abs(this.y - player.y) <= yTolerance &&
       abs(this.x - player.x) <= xTolerance
     ) {
-      // Create splash effect with variable size depending on player size
-      createSplash(this.x, this.y, this.color, player.size);
-      return true; // Collision detected
+      // Create splash effect with variable size depending on depth
+      createSplash(this.x, this.y, this.color, this.size);
+      return true;
     }
-    return false; // No collision
+    return false;
   }
 
   applyEffect(player) {
@@ -149,25 +177,70 @@ class Poison extends Fruit {
   constructor(slotIndex, slotWidth) {
     super(slotIndex, slotWidth);
     this.color = color(0, 0, 0); // Black color for poison
+    this.baseSpeed = 5; // Starting speed for poison fruits
+  }
+
+  // Override fall method to apply dynamic speed
+  fall() {
+    let speedMultiplier = map(player1.score, 0, 100, 1, 3); // Adjust max score and multiplier
+    this.y += this.baseSpeed * speedMultiplier;
   }
 
   applyEffect(player) {
     player.hearts--; // Decrease hearts on poison collision
   }
 }
+
 // RainyFruits Class
 class RainyFruits extends Fruit {
-  applyEffect() {
-    // Increase the frequency of falling fruits
-    difficulty = max(difficulty - 500, 500); // Increase speed, minimum 500ms
+  constructor(slotIndex, slotWidth) {
+    super(slotIndex, slotWidth);
+    this.color = color(135, 206, 250); // Light blue color for a rain-like effect
+    this.size = 30; // Size of the teardrop fruit
+    this.displayedText = false; // Flag to show the popup message
+  }
 
-    // Set the rainy fruits effect active
-    gameControl.isRainyFruitsActive = true;
-
-    // Deactivate the rainy fruits effect after 15 seconds
+  applyEffect(player) {
+    startRainEffect(); // Trigger rain effect when the fruit is collected
+    this.displayedText = true; // Show the popup text when the power-up is collected
     setTimeout(() => {
-      gameControl.isRainyFruitsActive = false;
-    }, 15000); // 15 seconds in milliseconds
+      this.displayedText = false; // Hide the popup after a short duration (e.g., 2 seconds)
+    }, 2000); // Show for 2 seconds
+  }
+
+  display() {
+    // Draw the teardrop shape
+    fill(this.color);
+    noStroke();
+
+    // Starting with the point of the teardrop (bottom)
+    beginShape();
+    vertex(this.x, this.y - this.size / 2); // Bottom point of the teardrop
+    bezierVertex(
+      this.x + this.size / 3,
+      this.y - this.size, // Right curve control point (sharper)
+      this.x + this.size / 3,
+      this.y + this.size / 2, // Right curve control point (sharper)
+      this.x,
+      this.y + this.size / 2 // The round base of the teardrop
+    );
+    bezierVertex(
+      this.x - this.size / 3,
+      this.y + this.size / 2, // Left curve control point (sharper)
+      this.x - this.size / 3,
+      this.y - this.size, // Left curve control point (sharper)
+      this.x,
+      this.y - this.size / 2 // Bottom point of the teardrop (back to the top)
+    );
+    endShape(CLOSE); // Close the shape
+
+    // Display the "RAIN!!" text when the power-up is collected
+    if (this.displayedText) {
+      fill(255, 255, 255); // White text
+      textSize(32);
+      textAlign(CENTER, CENTER);
+      text("RAIN!!", this.x, this.y - this.size); // Display text slightly above the fruit
+    }
   }
 }
 
@@ -257,6 +330,7 @@ class SplashParticle {
   }
 }
 
+// COOL FEARTURE
 // Function to create splash effect with particles. Find way of placing in SplashParticle class
 function createSplash(x, y, color, playerSize) {
   let numParticles = map(playerSize, 60, 150, 10, 25); // More particles for larger sizes
@@ -264,6 +338,67 @@ function createSplash(x, y, color, playerSize) {
     let maxSize = map(playerSize, 60, 150, 10, 20);
     splashes.push(new SplashParticle(x, y, color, maxSize));
   }
+}
+
+// Power-up generation frequency
+// Adjust as needed
+
+function generatePowerUps() {
+  if (!gameControl.isPaused) {
+    let slotIndex = floor(random(slots));
+    let powerUpType = random();
+
+    // Adjust extra heart probability based on player hearts
+    let extraHeartProbability;
+    if (player1.hearts <= 1) {
+      extraHeartProbability = 0.5; // Higher chance if only 1 heart
+    } else if (player1.hearts === 2) {
+      extraHeartProbability = 0.2; // Medium chance if 2 hearts
+    } else {
+      extraHeartProbability = 0.05; // Lower chance if at full health
+    }
+
+    // Determine which power-up to spawn based on probabilities
+    if (gameControl.isRainyFruitsActive) {
+      // Increase poison density during RainyFruits effect
+      if (powerUpType < 0.6) {
+        powerUps.push(new Poison(slotIndex, slotWidth));
+      } else {
+        fruits.push(new Fruit(slotIndex, slotWidth));
+      }
+    } else {
+      // Normal game state power-up distribution
+      if (powerUpType < 0.1) {
+        powerUps.push(new Poison(slotIndex, slotWidth));
+      } else if (powerUpType < 0.3) {
+        powerUps.push(new RainyFruits(slotIndex, slotWidth));
+      } else if (powerUpType < 0.2) {
+        powerUps.push(new BigBoards(slotIndex, slotWidth));
+      } else if (powerUpType < extraHeartProbability) {
+        powerUps.push(new ExtraHeart(slotIndex, slotWidth));
+      }
+    }
+  }
+}
+
+function startRainEffect() {
+  // Set the rain duration and interval
+  const rainDuration = 5000; // Rain lasts for 5 seconds
+  const rainInterval = 100; // Every 100ms, generate fruits/poisons
+
+  const rainEffect = setInterval(() => {
+    let slotIndex = floor(random(slots));
+    if (random() < 0.7) {
+      // 70% chance of fruit
+      fruits.push(new Fruit(slotIndex, slotWidth));
+    } else {
+      // 30% chance of poison
+      fruits.push(new Poison(slotIndex, slotWidth));
+    }
+  }, rainInterval);
+
+  // Stop rain effect after rainDuration
+  setTimeout(() => clearInterval(rainEffect), rainDuration);
 }
 
 function setup() {
@@ -278,33 +413,7 @@ function setup() {
       fruits.push(new Fruit(slotIndex, slotWidth));
     }
   }, difficulty);
-
-  setInterval(() => {
-    if (!gameControl.isPaused) {
-      let slotIndex = floor(random(slots));
-      let powerUpType = random();
-
-      if (gameControl.isRainyFruitsActive) {
-        // Flood the screen with a mix of poison and fruits
-        if (powerUpType < 1) {
-          fruits.push(new Poison(slotIndex, slotWidth));
-        } else {
-          fruits.push(new Fruit(slotIndex, slotWidth));
-        }
-      } else {
-        // Normal power-up generation
-        if (powerUpType < 0.2) {
-          powerUps.push(new Poison(slotIndex, slotWidth));
-        } else if (powerUpType < 0.8) {
-          powerUps.push(new RainyFruits(slotIndex, slotWidth));
-        } else if (powerUpType < 0.2) {
-          powerUps.push(new BigBoards(slotIndex, slotWidth));
-        } else if (powerUpType < 0.1) {
-          powerUps.push(new ExtraHeart(slotIndex, slotWidth));
-        }
-      }
-    }
-  }, difficulty * 5); // Power-ups less frequent than fruits
+  setInterval(generatePowerUps, difficulty * 5);
 
   // Create restart button
   let restartButton = createButton("Restart");
@@ -324,18 +433,29 @@ function draw() {
   }
   background(220);
 
-  // Player controls
+  // Player controls (horizontal and vertical)
   if (moveCooldown <= 0) {
+    // Horizontal movement
     if (
       (keyIsDown(RIGHT_ARROW) || keyIsDown(68)) &&
       player1.currentSlot < slots - 1
     ) {
       player1.moveRight();
-      moveCooldown = movement; // Adjust cooldown based on movement speed
+      moveCooldown = movement;
     }
     if ((keyIsDown(LEFT_ARROW) || keyIsDown(65)) && player1.currentSlot > 0) {
       player1.moveLeft();
       moveCooldown = movement;
+    }
+
+    // Vertical movement
+    if (keyIsDown(UP_ARROW) || keyIsDown(87)) {
+      // UP_ARROW or 'W'
+      player1.moveUp();
+    }
+    if (keyIsDown(DOWN_ARROW) || keyIsDown(83)) {
+      // DOWN_ARROW or 'S'
+      player1.moveDown();
     }
   } else {
     moveCooldown--;
